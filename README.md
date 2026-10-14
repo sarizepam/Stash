@@ -17,8 +17,11 @@ Desarrollar una aplicación móvil multiplataforma para dispositivos Android e i
 ## Objetivos especificos 
 
 -Diseñar la arquitectura cliente-servidor de la aplicación móvil, definiendo la estructura de sus componentes, la organización del código y la comunicación entre la interfaz desarrollada con React Native y los servicios del servidor implementados con Node.js y Express.js.
+
 -Implementar un sistema de gestión de usuarios y cuentas personales que permita registrar, almacenar y consultar información mediante una base de datos SQLite, garantizando la persistencia y organización de los datos financieros.
+
 -Programar los módulos de administración financiera para registrar ingresos y gastos, clasificar movimientos por categorías, gestionar presupuestos y actualizar automáticamente los saldos de las cuentas y el balance general.
+
 -Integrar las funcionalidades de la aplicación en un entorno multiplataforma mediante React Native y Expo, realizando pruebas de funcionamiento en Android e iOS y utilizando Git y GitHub para el control de versiones y la colaboración del equipo.
 
 
