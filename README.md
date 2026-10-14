@@ -14,17 +14,6 @@ La aplicación no realizará operaciones bancarias reales ni establecerá conexi
 
 Desarrollar una aplicación móvil multiplataforma para dispositivos Android e iOS mediante React Native, que permita administrar información financiera personal a través del registro y procesamiento de ingresos, gastos, cuentas y presupuestos, implementando una arquitectura organizada, persistencia de datos y control de versiones colaborativo.
 
-## Objetivos especificos 
-
--Diseñar la arquitectura cliente-servidor de la aplicación móvil, definiendo la estructura de sus componentes, la organización del código y la comunicación entre la interfaz desarrollada con React Native y los servicios del servidor implementados con Node.js y Express.js.
-
--Implementar un sistema de gestión de usuarios y cuentas personales que permita el registro, almacenamiento y consulta de información mediante una base de datos SQLite, garantizando la persistencia y organización de los datos financieros.
-
--Programar los módulos de administración financiera para el registro de los ingresos y gastos, la clasificación de movimientos por categorías, la gestión de presupuestos y la actualización automáticamente los saldos de las cuentas y el balance general.
-
--Integrar las funcionalidades de la aplicación en un entorno multiplataforma mediante React Native y Expo, realizando pruebas de funcionamiento en Android e iOS.
-
-
 ## Principales funcionalidades
 
 Las principales funcionalidades contempladas para STASH son:
