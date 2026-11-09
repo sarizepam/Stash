@@ -1,12 +1,70 @@
 import { router } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
+import { getSessionUserId } from '../services/session';
 
 export default function WelcomeScreen() {
+  const [checkingSession, setCheckingSession] =
+    useState(true);
+
+  useEffect(() => {
+    async function checkSession() {
+      try {
+        const userId =
+          await getSessionUserId();
+
+        if (userId) {
+          router.replace('/dashboard');
+          return;
+        }
+
+        setCheckingSession(false);
+      } catch (error) {
+        console.error(
+          'Error al comprobar sesión:',
+          error
+        );
+
+        setCheckingSession(false);
+      }
+    }
+
+    checkSession();
+  }, []);
+
+  if (checkingSession) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator
+          size="large"
+          color="#E96A9D"
+        />
+
+        <Text style={styles.loadingText}>
+          Cargando STASH...
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.logoContainer}>
-        <Text style={styles.symbol}>$</Text>
-        <Text style={styles.logo}>stash</Text>
+        <Text style={styles.symbol}>
+          $
+        </Text>
+
+        <Text style={styles.logo}>
+          stash
+        </Text>
 
         <Text style={styles.description}>
           Controla tus gastos y organiza tus finanzas personales.
@@ -16,14 +74,21 @@ export default function WelcomeScreen() {
       <View style={styles.buttonsContainer}>
         <Pressable
           style={styles.primaryButton}
-          onPress={() => router.push('/login')}
+          onPress={() =>
+            router.push('/login')
+          }
         >
           <Text style={styles.primaryButtonText}>
             Iniciar sesión
           </Text>
         </Pressable>
 
-        <Pressable style={styles.secondaryButton}>
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() =>
+            router.push('/register')
+          }
+        >
           <Text style={styles.secondaryButtonText}>
             Crear cuenta
           </Text>
@@ -41,6 +106,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 30,
     paddingTop: 160,
     paddingBottom: 60,
+  },
+
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  loadingText: {
+    marginTop: 15,
+    fontSize: 15,
+    color: '#777777',
   },
 
   logoContainer: {

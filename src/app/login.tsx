@@ -1,5 +1,8 @@
 import { router } from 'expo-router';
+import { useState } from 'react';
+
 import {
+  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -7,14 +10,80 @@ import {
   View,
 } from 'react-native';
 
+import { getUserByEmail } from '../database/database';
+import { saveSession } from '../services/session';
+
+type User = {
+  id: number;
+  nombre: string;
+  correo: string;
+  password: string;
+};
+
 export default function LoginScreen() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleLogin() {
+    if (!email.trim() || !password) {
+      Alert.alert(
+        'Faltan datos',
+        'Ingresa tu correo electrónico y contraseña.'
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const user = (await getUserByEmail(email)) as User | null;
+
+      if (!user) {
+        Alert.alert(
+          'Usuario no encontrado',
+          'No existe una cuenta registrada con ese correo.'
+        );
+        return;
+      }
+
+      if (user.password !== password) {
+        Alert.alert(
+          'Contraseña incorrecta',
+          'La contraseña ingresada no es correcta.'
+        );
+        return;
+      }
+
+      // Guarda qué usuario tiene la sesión activa.
+      await saveSession(user.id);
+
+      // Evita regresar al login con el botón atrás.
+      router.replace('/dashboard');
+    } catch (error) {
+      console.error(
+        'Error al iniciar sesión:',
+        error
+      );
+
+      Alert.alert(
+        'Error',
+        'No se pudo iniciar sesión. Inténtalo nuevamente.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <View style={styles.container}>
       <Pressable
         style={styles.backButton}
         onPress={() => router.back()}
       >
-        <Text style={styles.backText}>‹</Text>
+        <Text style={styles.backText}>
+          ‹
+        </Text>
       </Pressable>
 
       <View>
@@ -35,6 +104,9 @@ export default function LoginScreen() {
           placeholder="correo@ejemplo.com"
           keyboardType="email-address"
           autoCapitalize="none"
+          autoCorrect={false}
+          value={email}
+          onChangeText={setEmail}
         />
 
         <Text style={styles.label}>
@@ -45,18 +117,28 @@ export default function LoginScreen() {
           style={styles.input}
           placeholder="••••••••"
           secureTextEntry
+          value={password}
+          onChangeText={setPassword}
         />
 
         <Pressable
-          style={styles.loginButton}
-          onPress={() => router.replace('/dashboard')}
+          style={[
+            styles.loginButton,
+            loading && styles.disabledButton,
+          ]}
+          onPress={handleLogin}
+          disabled={loading}
         >
           <Text style={styles.loginButtonText}>
-            Iniciar sesión
+            {loading
+              ? 'Iniciando sesión...'
+              : 'Iniciar sesión'}
           </Text>
         </Pressable>
 
-        <Pressable>
+        <Pressable
+          onPress={() => router.push('/register')}
+        >
           <Text style={styles.createAccount}>
             ¿No tienes cuenta? Crear cuenta
           </Text>
@@ -118,6 +200,10 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 8,
+  },
+
+  disabledButton: {
+    opacity: 0.6,
   },
 
   loginButtonText: {
