@@ -33,7 +33,7 @@ Las principales funcionalidades contempladas para STASH son:
 Para el desarrollo del proyecto se contempla el uso de:
 
 - React Native.
-- JavaScript.
+- TypeScript.
 - Node.js.
 - Express.js.
 - SQLite.
