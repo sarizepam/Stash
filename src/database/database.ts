@@ -3,7 +3,9 @@ import * as SQLite from 'expo-sqlite';
 const DATABASE_NAME = 'stash.db';
 
 async function getDatabase() {
-  return await SQLite.openDatabaseAsync(DATABASE_NAME);
+  return await SQLite.openDatabaseAsync(
+    DATABASE_NAME
+  );
 }
 
 /* =========================================================
@@ -21,7 +23,8 @@ export async function initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nombre TEXT NOT NULL,
       correo TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL
+      password TEXT NOT NULL,
+      foto_perfil TEXT
     );
 
     CREATE TABLE IF NOT EXISTS cuentas (
@@ -100,7 +103,39 @@ export async function initDatabase() {
     );
   `);
 
-  console.log('Base de datos STASH inicializada');
+  /*
+    MIGRACIÓN:
+    Si la base ya existía antes de agregar foto_perfil,
+    CREATE TABLE IF NOT EXISTS no modifica la tabla existente.
+
+    Por eso verificamos si la columna ya existe.
+  */
+
+  const userColumns =
+    await db.getAllAsync<{
+      name: string;
+    }>(
+      `
+      PRAGMA table_info(usuarios)
+      `
+    );
+
+  const hasProfilePhoto =
+    userColumns.some(
+      (column) =>
+        column.name === 'foto_perfil'
+    );
+
+  if (!hasProfilePhoto) {
+    await db.execAsync(`
+      ALTER TABLE usuarios
+      ADD COLUMN foto_perfil TEXT;
+    `);
+  }
+
+  console.log(
+    'Base de datos STASH inicializada'
+  );
 
   return db;
 }
@@ -130,14 +165,19 @@ export async function createUser(
     password
   );
 
-  const userId = result.lastInsertRowId;
+  const userId =
+    result.lastInsertRowId;
 
-  await createDefaultCategories(userId);
+  await createDefaultCategories(
+    userId
+  );
 
   return userId;
 }
 
-export async function getUserByEmail(correo: string) {
+export async function getUserByEmail(
+  correo: string
+) {
   const db = await getDatabase();
 
   return await db.getFirstAsync(
@@ -150,15 +190,105 @@ export async function getUserByEmail(correo: string) {
   );
 }
 
-export async function getUserById(usuarioId: number) {
+export async function getUserById(
+  usuarioId: number
+) {
   const db = await getDatabase();
 
   return await db.getFirstAsync(
     `
-    SELECT id, nombre, correo
+    SELECT
+      id,
+      nombre,
+      correo,
+      foto_perfil
+
     FROM usuarios
+
     WHERE id = ?
     `,
+    usuarioId
+  );
+}
+
+export async function updateUserProfile(
+  usuarioId: number,
+  nombre: string,
+  fotoPerfil: string | null
+) {
+  const db = await getDatabase();
+
+  if (!nombre.trim()) {
+    throw new Error(
+      'El nombre es obligatorio.'
+    );
+  }
+
+  await db.runAsync(
+    `
+    UPDATE usuarios
+
+    SET
+      nombre = ?,
+      foto_perfil = ?
+
+    WHERE id = ?
+    `,
+    nombre.trim(),
+    fotoPerfil,
+    usuarioId
+  );
+}
+
+export async function updateUserPassword(
+  usuarioId: number,
+  passwordActual: string,
+  passwordNueva: string
+) {
+  const db = await getDatabase();
+
+  const user =
+    await db.getFirstAsync<{
+      password: string;
+    }>(
+      `
+      SELECT password
+      FROM usuarios
+      WHERE id = ?
+      `,
+      usuarioId
+    );
+
+  if (!user) {
+    throw new Error(
+      'Usuario no encontrado.'
+    );
+  }
+
+  if (
+    user.password !==
+    passwordActual
+  ) {
+    throw new Error(
+      'La contraseña actual es incorrecta.'
+    );
+  }
+
+  if (
+    passwordNueva.length < 6
+  ) {
+    throw new Error(
+      'La nueva contraseña debe tener al menos 6 caracteres.'
+    );
+  }
+
+  await db.runAsync(
+    `
+    UPDATE usuarios
+    SET password = ?
+    WHERE id = ?
+    `,
+    passwordNueva,
     usuarioId
   );
 }
@@ -189,7 +319,9 @@ export async function createDefaultCategories(
         nombre,
         color
       )
+
       SELECT ?, ?, ?
+
       WHERE NOT EXISTS (
         SELECT 1
         FROM categorias
@@ -222,6 +354,143 @@ export async function getCategories(
   );
 }
 
+export async function getCategoryById(
+  categoriaId: number,
+  usuarioId: number
+) {
+  const db = await getDatabase();
+
+  return await db.getFirstAsync(
+    `
+    SELECT *
+    FROM categorias
+    WHERE id = ?
+    AND usuario_id = ?
+    `,
+    categoriaId,
+    usuarioId
+  );
+}
+
+export async function createCategory(
+  usuarioId: number,
+  nombre: string,
+  color: string
+) {
+  const db = await getDatabase();
+
+  if (!nombre.trim()) {
+    throw new Error(
+      'El nombre de la categoría es obligatorio.'
+    );
+  }
+
+  const existingCategory =
+    await db.getFirstAsync(
+      `
+      SELECT id
+      FROM categorias
+      WHERE usuario_id = ?
+      AND LOWER(nombre) = LOWER(?)
+      `,
+      usuarioId,
+      nombre.trim()
+    );
+
+  if (existingCategory) {
+    throw new Error(
+      'Ya existe una categoría con ese nombre.'
+    );
+  }
+
+  const result =
+    await db.runAsync(
+      `
+      INSERT INTO categorias (
+        usuario_id,
+        nombre,
+        color
+      )
+      VALUES (?, ?, ?)
+      `,
+      usuarioId,
+      nombre.trim(),
+      color
+    );
+
+  return result.lastInsertRowId;
+}
+
+export async function updateCategory(
+  categoriaId: number,
+  usuarioId: number,
+  nombre: string,
+  color: string
+) {
+  const db = await getDatabase();
+
+  if (!nombre.trim()) {
+    throw new Error(
+      'El nombre de la categoría es obligatorio.'
+    );
+  }
+
+  const duplicate =
+    await db.getFirstAsync(
+      `
+      SELECT id
+      FROM categorias
+
+      WHERE usuario_id = ?
+      AND LOWER(nombre) = LOWER(?)
+      AND id != ?
+      `,
+      usuarioId,
+      nombre.trim(),
+      categoriaId
+    );
+
+  if (duplicate) {
+    throw new Error(
+      'Ya existe otra categoría con ese nombre.'
+    );
+  }
+
+  await db.runAsync(
+    `
+    UPDATE categorias
+
+    SET
+      nombre = ?,
+      color = ?
+
+    WHERE id = ?
+    AND usuario_id = ?
+    `,
+    nombre.trim(),
+    color,
+    categoriaId,
+    usuarioId
+  );
+}
+
+export async function deleteCategory(
+  categoriaId: number,
+  usuarioId: number
+) {
+  const db = await getDatabase();
+
+  await db.runAsync(
+    `
+    DELETE FROM categorias
+    WHERE id = ?
+    AND usuario_id = ?
+    `,
+    categoriaId,
+    usuarioId
+  );
+}
+
 /* =========================================================
    CUENTAS FINANCIERAS
    ========================================================= */
@@ -235,25 +504,26 @@ export async function createAccount(
 ) {
   const db = await getDatabase();
 
-  const result = await db.runAsync(
-    `
-    INSERT INTO cuentas (
-      usuario_id,
-      nombre,
+  const result =
+    await db.runAsync(
+      `
+      INSERT INTO cuentas (
+        usuario_id,
+        nombre,
+        tipo,
+        saldo_inicial,
+        saldo_actual,
+        color
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      usuarioId,
+      nombre.trim(),
       tipo,
-      saldo_inicial,
-      saldo_actual,
+      saldoInicial,
+      saldoInicial,
       color
-    )
-    VALUES (?, ?, ?, ?, ?, ?)
-    `,
-    usuarioId,
-    nombre.trim(),
-    tipo,
-    saldoInicial,
-    saldoInicial,
-    color
-  );
+    );
 
   return result.lastInsertRowId;
 }
@@ -292,6 +562,58 @@ export async function getAccountById(
   );
 }
 
+export async function updateAccount(
+  cuentaId: number,
+  usuarioId: number,
+  nombre: string,
+  tipo: string,
+  color: string
+) {
+  const db = await getDatabase();
+
+  await db.runAsync(
+    `
+    UPDATE cuentas
+
+    SET
+      nombre = ?,
+      tipo = ?,
+      color = ?
+
+    WHERE id = ?
+    AND usuario_id = ?
+    `,
+    nombre.trim(),
+    tipo,
+    color,
+    cuentaId,
+    usuarioId
+  );
+}
+
+export async function adjustAccountBalance(
+  cuentaId: number,
+  usuarioId: number,
+  cantidad: number
+) {
+  const db = await getDatabase();
+
+  await db.runAsync(
+    `
+    UPDATE cuentas
+
+    SET saldo_actual =
+      saldo_actual + ?
+
+    WHERE id = ?
+    AND usuario_id = ?
+    `,
+    cantidad,
+    cuentaId,
+    usuarioId
+  );
+}
+
 /* =========================================================
    GASTOS
    ========================================================= */
@@ -312,58 +634,65 @@ export async function createExpense(
     );
   }
 
-  await db.withTransactionAsync(async () => {
-    const account = await db.getFirstAsync<{
-      saldo_actual: number;
-    }>(
-      `
-      SELECT saldo_actual
-      FROM cuentas
-      WHERE id = ?
-      AND usuario_id = ?
-      `,
-      cuentaId,
-      usuarioId
-    );
+  await db.withTransactionAsync(
+    async () => {
+      const account =
+        await db.getFirstAsync<{
+          saldo_actual: number;
+        }>(
+          `
+          SELECT saldo_actual
+          FROM cuentas
 
-    if (!account) {
-      throw new Error(
-        'La cuenta seleccionada no existe.'
-      );
-    }
+          WHERE id = ?
+          AND usuario_id = ?
+          `,
+          cuentaId,
+          usuarioId
+        );
 
-    await db.runAsync(
-      `
-      INSERT INTO gastos (
-        usuario_id,
-        cuenta_id,
-        categoria_id,
+      if (!account) {
+        throw new Error(
+          'La cuenta seleccionada no existe.'
+        );
+      }
+
+      await db.runAsync(
+        `
+        INSERT INTO gastos (
+          usuario_id,
+          cuenta_id,
+          categoria_id,
+          monto,
+          fecha,
+          nota
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        usuarioId,
+        cuentaId,
+        categoriaId,
         monto,
         fecha,
-        nota
-      )
-      VALUES (?, ?, ?, ?, ?, ?)
-      `,
-      usuarioId,
-      cuentaId,
-      categoriaId,
-      monto,
-      fecha,
-      nota?.trim() || null
-    );
+        nota?.trim() || null
+      );
 
-    await db.runAsync(
-      `
-      UPDATE cuentas
-      SET saldo_actual = saldo_actual - ?
-      WHERE id = ?
-      AND usuario_id = ?
-      `,
-      monto,
-      cuentaId,
-      usuarioId
-    );
-  });
+      await db.runAsync(
+        `
+        UPDATE cuentas
+
+        SET saldo_actual =
+          saldo_actual - ?
+
+        WHERE id = ?
+        AND usuario_id = ?
+        `,
+        monto,
+        cuentaId,
+        usuarioId
+      );
+    }
+  );
 }
 
 export async function getExpenses(
@@ -390,15 +719,18 @@ export async function getExpenses(
     FROM gastos
 
     INNER JOIN cuentas
-      ON gastos.cuenta_id = cuentas.id
+      ON gastos.cuenta_id =
+         cuentas.id
 
     LEFT JOIN categorias
-      ON gastos.categoria_id = categorias.id
+      ON gastos.categoria_id =
+         categorias.id
 
     WHERE gastos.usuario_id = ?
 
-    ORDER BY gastos.fecha DESC,
-             gastos.id DESC
+    ORDER BY
+      gastos.fecha DESC,
+      gastos.id DESC
     `,
     usuarioId
   );
@@ -417,28 +749,317 @@ export async function getRecentExpenses(
       gastos.monto,
       gastos.fecha,
       gastos.nota,
-      categorias.nombre AS categoria,
-      categorias.color AS categoria_color,
-      cuentas.nombre AS cuenta,
-      cuentas.tipo AS tipo_cuenta
+
+      categorias.nombre
+        AS categoria,
+
+      categorias.color
+        AS categoria_color,
+
+      cuentas.nombre
+        AS cuenta,
+
+      cuentas.tipo
+        AS tipo_cuenta
 
     FROM gastos
 
     INNER JOIN cuentas
-      ON gastos.cuenta_id = cuentas.id
+      ON gastos.cuenta_id =
+         cuentas.id
 
     LEFT JOIN categorias
-      ON gastos.categoria_id = categorias.id
+      ON gastos.categoria_id =
+         categorias.id
 
     WHERE gastos.usuario_id = ?
 
-    ORDER BY gastos.fecha DESC,
-             gastos.id DESC
+    ORDER BY
+      gastos.fecha DESC,
+      gastos.id DESC
 
     LIMIT ?
     `,
     usuarioId,
     limite
+  );
+}
+
+export async function getExpenseById(
+  gastoId: number,
+  usuarioId: number
+) {
+  const db = await getDatabase();
+
+  return await db.getFirstAsync(
+    `
+    SELECT
+      gastos.id,
+      gastos.usuario_id,
+      gastos.cuenta_id,
+      gastos.categoria_id,
+      gastos.monto,
+      gastos.fecha,
+      gastos.nota,
+
+      categorias.nombre
+        AS categoria,
+
+      categorias.color
+        AS categoria_color,
+
+      cuentas.nombre
+        AS cuenta,
+
+      cuentas.tipo
+        AS tipo_cuenta
+
+    FROM gastos
+
+    INNER JOIN cuentas
+      ON gastos.cuenta_id =
+         cuentas.id
+
+    LEFT JOIN categorias
+      ON gastos.categoria_id =
+         categorias.id
+
+    WHERE gastos.id = ?
+    AND gastos.usuario_id = ?
+    `,
+    gastoId,
+    usuarioId
+  );
+}
+
+export async function updateExpense(
+  gastoId: number,
+  usuarioId: number,
+  nuevaCuentaId: number,
+  nuevaCategoriaId:
+    number | null,
+  nuevoMonto: number,
+  nuevaFecha: string,
+  nuevaNota?: string
+) {
+  const db = await getDatabase();
+
+  if (nuevoMonto <= 0) {
+    throw new Error(
+      'El monto del gasto debe ser mayor que cero.'
+    );
+  }
+
+  await db.withTransactionAsync(
+    async () => {
+      const oldExpense =
+        await db.getFirstAsync<{
+          cuenta_id: number;
+          monto: number;
+        }>(
+          `
+          SELECT
+            cuenta_id,
+            monto
+
+          FROM gastos
+
+          WHERE id = ?
+          AND usuario_id = ?
+          `,
+          gastoId,
+          usuarioId
+        );
+
+      if (!oldExpense) {
+        throw new Error(
+          'El gasto no existe.'
+        );
+      }
+
+      const newAccount =
+        await db.getFirstAsync<{
+          id: number;
+        }>(
+          `
+          SELECT id
+          FROM cuentas
+
+          WHERE id = ?
+          AND usuario_id = ?
+          `,
+          nuevaCuentaId,
+          usuarioId
+        );
+
+      if (!newAccount) {
+        throw new Error(
+          'La nueva cuenta seleccionada no existe.'
+        );
+      }
+
+      if (
+        nuevaCategoriaId !== null
+      ) {
+        const category =
+          await db.getFirstAsync<{
+            id: number;
+          }>(
+            `
+            SELECT id
+            FROM categorias
+
+            WHERE id = ?
+            AND usuario_id = ?
+            `,
+            nuevaCategoriaId,
+            usuarioId
+          );
+
+        if (!category) {
+          throw new Error(
+            'La categoría seleccionada no existe.'
+          );
+        }
+      }
+
+      /*
+        1. Devolver el gasto anterior
+           a la cuenta original.
+      */
+
+      await db.runAsync(
+        `
+        UPDATE cuentas
+
+        SET saldo_actual =
+          saldo_actual + ?
+
+        WHERE id = ?
+        AND usuario_id = ?
+        `,
+        oldExpense.monto,
+        oldExpense.cuenta_id,
+        usuarioId
+      );
+
+      /*
+        2. Actualizar gasto.
+      */
+
+      await db.runAsync(
+        `
+        UPDATE gastos
+
+        SET
+          cuenta_id = ?,
+          categoria_id = ?,
+          monto = ?,
+          fecha = ?,
+          nota = ?
+
+        WHERE id = ?
+        AND usuario_id = ?
+        `,
+        nuevaCuentaId,
+        nuevaCategoriaId,
+        nuevoMonto,
+        nuevaFecha,
+        nuevaNota?.trim() ||
+          null,
+        gastoId,
+        usuarioId
+      );
+
+      /*
+        3. Descontar nuevo gasto.
+      */
+
+      await db.runAsync(
+        `
+        UPDATE cuentas
+
+        SET saldo_actual =
+          saldo_actual - ?
+
+        WHERE id = ?
+        AND usuario_id = ?
+        `,
+        nuevoMonto,
+        nuevaCuentaId,
+        usuarioId
+      );
+    }
+  );
+}
+
+export async function deleteExpense(
+  gastoId: number,
+  usuarioId: number
+) {
+  const db = await getDatabase();
+
+  await db.withTransactionAsync(
+    async () => {
+      const expense =
+        await db.getFirstAsync<{
+          cuenta_id: number;
+          monto: number;
+        }>(
+          `
+          SELECT
+            cuenta_id,
+            monto
+
+          FROM gastos
+
+          WHERE id = ?
+          AND usuario_id = ?
+          `,
+          gastoId,
+          usuarioId
+        );
+
+      if (!expense) {
+        throw new Error(
+          'El gasto no existe.'
+        );
+      }
+
+      /*
+        Devolver el dinero.
+      */
+
+      await db.runAsync(
+        `
+        UPDATE cuentas
+
+        SET saldo_actual =
+          saldo_actual + ?
+
+        WHERE id = ?
+        AND usuario_id = ?
+        `,
+        expense.monto,
+        expense.cuenta_id,
+        usuarioId
+      );
+
+      /*
+        Eliminar gasto.
+      */
+
+      await db.runAsync(
+        `
+        DELETE FROM gastos
+
+        WHERE id = ?
+        AND usuario_id = ?
+        `,
+        gastoId,
+        usuarioId
+      );
+    }
   );
 }
 
@@ -454,21 +1075,22 @@ export async function createBudget(
 ) {
   const db = await getDatabase();
 
-  const result = await db.runAsync(
-    `
-    INSERT INTO presupuestos (
-      usuario_id,
-      categoria_id,
-      monto_limite,
+  const result =
+    await db.runAsync(
+      `
+      INSERT INTO presupuestos (
+        usuario_id,
+        categoria_id,
+        monto_limite,
+        periodo
+      )
+      VALUES (?, ?, ?, ?)
+      `,
+      usuarioId,
+      categoriaId,
+      montoLimite,
       periodo
-    )
-    VALUES (?, ?, ?, ?)
-    `,
-    usuarioId,
-    categoriaId,
-    montoLimite,
-    periodo
-  );
+    );
 
   return result.lastInsertRowId;
 }
@@ -482,12 +1104,14 @@ export async function getBudgets(
     `
     SELECT
       presupuestos.*,
-      categorias.nombre AS categoria
+      categorias.nombre
+        AS categoria
 
     FROM presupuestos
 
     LEFT JOIN categorias
-      ON presupuestos.categoria_id = categorias.id
+      ON presupuestos.categoria_id =
+         categorias.id
 
     WHERE presupuestos.usuario_id = ?
     `,
@@ -506,19 +1130,20 @@ export async function createGoal(
 ) {
   const db = await getDatabase();
 
-  const result = await db.runAsync(
-    `
-    INSERT INTO metas (
-      usuario_id,
-      nombre,
-      monto_objetivo
-    )
-    VALUES (?, ?, ?)
-    `,
-    usuarioId,
-    nombre.trim(),
-    montoObjetivo
-  );
+  const result =
+    await db.runAsync(
+      `
+      INSERT INTO metas (
+        usuario_id,
+        nombre,
+        monto_objetivo
+      )
+      VALUES (?, ?, ?)
+      `,
+      usuarioId,
+      nombre.trim(),
+      montoObjetivo
+    );
 
   return result.lastInsertRowId;
 }
@@ -531,9 +1156,16 @@ export async function getGoals(
   return await db.getAllAsync(
     `
     SELECT *,
+
       CASE
         WHEN monto_objetivo > 0
-        THEN (monto_acumulado / monto_objetivo) * 100
+
+        THEN
+          (
+            monto_acumulado /
+            monto_objetivo
+          ) * 100
+
         ELSE 0
       END AS porcentaje
 
@@ -545,6 +1177,224 @@ export async function getGoals(
   );
 }
 
+export async function getGoalById(
+  metaId: number,
+  usuarioId: number
+) {
+  const db = await getDatabase();
+
+  return await db.getFirstAsync(
+    `
+    SELECT *,
+
+      CASE
+        WHEN monto_objetivo > 0
+
+        THEN
+          (
+            monto_acumulado /
+            monto_objetivo
+          ) * 100
+
+        ELSE 0
+      END AS porcentaje
+
+    FROM metas
+
+    WHERE id = ?
+    AND usuario_id = ?
+    `,
+    metaId,
+    usuarioId
+  );
+}
+
+export async function updateGoal(
+  metaId: number,
+  usuarioId: number,
+  nombre: string,
+  montoObjetivo: number
+) {
+  const db = await getDatabase();
+
+  if (!nombre.trim()) {
+    throw new Error(
+      'El nombre de la meta es obligatorio.'
+    );
+  }
+
+  if (montoObjetivo <= 0) {
+    throw new Error(
+      'El monto objetivo debe ser mayor que cero.'
+    );
+  }
+
+  await db.runAsync(
+    `
+    UPDATE metas
+
+    SET
+      nombre = ?,
+      monto_objetivo = ?
+
+    WHERE id = ?
+    AND usuario_id = ?
+    `,
+    nombre.trim(),
+    montoObjetivo,
+    metaId,
+    usuarioId
+  );
+}
+
+export async function adjustGoalAmount(
+  metaId: number,
+  usuarioId: number,
+  cantidad: number
+) {
+  const db = await getDatabase();
+
+  const goal =
+    await db.getFirstAsync<{
+      monto_acumulado: number;
+    }>(
+      `
+      SELECT monto_acumulado
+
+      FROM metas
+
+      WHERE id = ?
+      AND usuario_id = ?
+      `,
+      metaId,
+      usuarioId
+    );
+
+  if (!goal) {
+    throw new Error(
+      'La meta no existe.'
+    );
+  }
+
+  const nuevoMonto =
+    goal.monto_acumulado +
+    cantidad;
+
+  if (nuevoMonto < 0) {
+    throw new Error(
+      'No puedes retirar más dinero del que tienes ahorrado.'
+    );
+  }
+
+  await db.runAsync(
+    `
+    UPDATE metas
+
+    SET monto_acumulado = ?
+
+    WHERE id = ?
+    AND usuario_id = ?
+    `,
+    nuevoMonto,
+    metaId,
+    usuarioId
+  );
+}
+
+export async function deleteGoal(
+  metaId: number,
+  usuarioId: number
+) {
+  const db = await getDatabase();
+
+  await db.runAsync(
+    `
+    DELETE FROM metas
+
+    WHERE id = ?
+    AND usuario_id = ?
+    `,
+    metaId,
+    usuarioId
+  );
+}
+
+export async function getTotalSavings(
+  usuarioId: number
+) {
+  const db = await getDatabase();
+
+  const result =
+    await db.getFirstAsync<{
+      total: number;
+    }>(
+      `
+      SELECT
+        COALESCE(
+          SUM(monto_acumulado),
+          0
+        ) AS total
+
+      FROM metas
+
+      WHERE usuario_id = ?
+      `,
+      usuarioId
+    );
+
+  return result?.total ?? 0;
+}
+
+export async function getSavingsProgress(
+  usuarioId: number
+) {
+  const db = await getDatabase();
+
+  const result =
+    await db.getFirstAsync<{
+      acumulado: number;
+      objetivo: number;
+    }>(
+      `
+      SELECT
+        COALESCE(
+          SUM(monto_acumulado),
+          0
+        ) AS acumulado,
+
+        COALESCE(
+          SUM(monto_objetivo),
+          0
+        ) AS objetivo
+
+      FROM metas
+
+      WHERE usuario_id = ?
+      `,
+      usuarioId
+    );
+
+  const acumulado =
+    result?.acumulado ?? 0;
+
+  const objetivo =
+    result?.objetivo ?? 0;
+
+  const porcentaje =
+    objetivo > 0
+      ? (
+          acumulado /
+          objetivo
+        ) * 100
+      : 0;
+
+  return {
+    acumulado,
+    objetivo,
+    porcentaje,
+  };
+}
+
 /* =========================================================
    DASHBOARD
    ========================================================= */
@@ -554,20 +1404,23 @@ export async function getTotalBalance(
 ) {
   const db = await getDatabase();
 
-  const result = await db.getFirstAsync<{
-    total: number;
-  }>(
-    `
-    SELECT
-      COALESCE(SUM(saldo_actual), 0)
-      AS total
+  const result =
+    await db.getFirstAsync<{
+      total: number;
+    }>(
+      `
+      SELECT
+        COALESCE(
+          SUM(saldo_actual),
+          0
+        ) AS total
 
-    FROM cuentas
+      FROM cuentas
 
-    WHERE usuario_id = ?
-    `,
-    usuarioId
-  );
+      WHERE usuario_id = ?
+      `,
+      usuarioId
+    );
 
   return result?.total ?? 0;
 }
@@ -577,16 +1430,19 @@ export async function getExpenseCount(
 ) {
   const db = await getDatabase();
 
-  const result = await db.getFirstAsync<{
-    total: number;
-  }>(
-    `
-    SELECT COUNT(*) AS total
-    FROM gastos
-    WHERE usuario_id = ?
-    `,
-    usuarioId
-  );
+  const result =
+    await db.getFirstAsync<{
+      total: number;
+    }>(
+      `
+      SELECT COUNT(*) AS total
+
+      FROM gastos
+
+      WHERE usuario_id = ?
+      `,
+      usuarioId
+    );
 
   return result?.total ?? 0;
 }
